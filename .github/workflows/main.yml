@@ -14,6 +14,7 @@ jobs:
       uses: fedora-python/tox-github-action@master
       with:
         tox_env: ${{ matrix.tox_env }}
+        dnf_install: /usr/bin/rpmdev-bumpspec
     strategy:
       matrix:
         tox_env: [py38, py39]

@@ -3,11 +3,17 @@ ferrypick
 
 Apply patches from Fedora dist git to different components.
 
-This simple tool does 3 steps:
+This simple tool does these steps:
 
  1. download patch file from src.fedoraproject.org
  2. replaces package name with current dist-git work dir package name
  3. runs `git am --reject` on the product
+ 4. if the rejected hunks only touch `Release` and add `%changelog` in spec
+    files, ignore the rejects and run rpmdev-bumpspec instead
+
+Requires the `rpmdev-bumpspec` tool from [rpmdevtools].
+
+[rpmdevtools]: https://pagure.io/rpmdevtools
 
 Usage:
 

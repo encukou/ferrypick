@@ -2,6 +2,8 @@ import sys
 import pytest
 from pathlib import Path
 from unittest import mock
+import subprocess
+import re
 
 import ferrypick
 
@@ -73,3 +75,44 @@ def test_functional():
         ferrypick.main()
 
     assert apply_content == expected
+
+
+def run(*argv, cwd, **kwargs):
+    print(argv, file=sys.stderr)
+    kwargs.setdefault('check', True)
+    env = kwargs.setdefault('env', {})
+    env.setdefault('GIT_CONFIG_NOSYSTEM', '1')
+    env.setdefault('HOME', cwd)
+    env.setdefault('XDG_CONFIG_HOME', cwd)
+    return subprocess.run(argv, cwd=cwd, **kwargs)
+
+
+def test_handle_rejects(tmp_path, monkeypatch):
+    orig_path = Path(__file__).parent / "5ea55d7-python39.spec"
+    expected_path = Path(__file__).parent / "expected-python39.spec"
+    patch_path = Path(__file__).parent / "c8570d6.patch"
+
+    repo_path = tmp_path / 'repo'
+    file_path = repo_path / 'python39.spec'
+
+    repo_path.mkdir()
+    run('git', 'init', cwd=repo_path)
+    run('git', 'config', 'user.name', 'Me', cwd=repo_path)
+    run('git', 'config', 'user.email', 'me@me.test', cwd=repo_path)
+
+    file_path.write_bytes(orig_path.read_bytes())
+    run('git', 'add', 'python39.spec', cwd=repo_path)
+    run('git', 'commit', '-m', 'initial', cwd=repo_path)
+
+
+    argv = [sys.argv[0], patch_path, 'python39']
+
+    monkeypatch.setattr(sys, 'argv', argv)
+    monkeypatch.chdir(repo_path)
+    ferrypick.main()
+
+    date_re = re.compile(r'^\* \w{3} \w{3} \d{2} \d{4}', re.MULTILINE)
+    got = date_re.sub('Xxx Xxx 00 0000', file_path.read_text())
+    expected = date_re.sub('Xxx Xxx 00 0000', expected_path.read_text())
+
+    assert got == expected

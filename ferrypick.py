@@ -5,6 +5,8 @@ import re
 import subprocess
 import sys
 import urllib.request
+import shlex
+from pathlib import Path
 
 COMMIT_RE = re.compile(r"^https://src\.fedoraproject\.org/\S+/([^/\s]+)/c/([0-9a-f]+)")
 PR_RE = re.compile(r"^https://src\.fedoraproject\.org/\S+/([^/\s]+)/pull-request/\d+")
@@ -64,9 +66,9 @@ def stdout(cmd):
     return subprocess.check_output(cmd, shell=True, text=True).rstrip()
 
 
-def execute(cmd):
-    proc = subprocess.run(cmd, shell=True, text=True)
-    return proc.returncode
+def execute(*cmd, **kwargs):
+    print(f"$ {' '.join(shlex.quote(str(c)) for c in cmd)}")
+    return subprocess.run(cmd, text=True, **kwargs)
 
 
 def parse_args():
@@ -97,15 +99,87 @@ def get_patch_content(link):
     return (content, original_name)
 
 
+def handle_reject(filename):
+    """If the .rej file given in `filename` is "simple", run rmpdev-bumpspec
+
+    Simple means roughly that only Release lines are touched and
+    %changelog lines are added.
+
+    Removes the reject file if successful.
+    """
+    changelog = None
+    path = Path(filename)
+    author = None
+    with path.open() as f:
+        for line in f:
+            # Find first hunk header
+            if line.startswith('@'):
+                break
+        for line in f:
+            marker = line[:1]
+            print(line.rstrip())
+            if marker == '@':
+                # Hunk header
+                continue
+            elif marker == ' ':
+                # Context
+                if line.strip() == '%changelog':
+                    changelog = []
+                continue
+            elif marker in ('+', '-'):
+                if changelog is not None:
+                    if marker == '-':
+                        # Removing existing changelog - bad
+                        return
+                    if match := re.match(
+                        r'\*\s+(\S+\s+){4}(?P<author>[^>]+>)',
+                        line[1:]
+                    ):
+                        author = match['author']
+                    else:
+                        changelog.append(line[1:])
+                elif line[1:].startswith('Release:'):
+                    continue
+                else:
+                    # Adding/removing something else - bad
+                    return
+            else:
+                # Unknown line - bad
+                return
+    if author is None:
+        print('No author found in reject')
+        return
+    print(f'Rejects in {filename} look harmless')
+    execute(
+        'rpmdev-bumpspec',
+        '-u', author,
+        '-c', ''.join(changelog).strip(),
+        path.with_suffix(''),
+        check=True,
+    )
+    path.unlink()
+
+
 def apply_patch(filename):
-    cmd = f"git am --committer-date-is-author-date --reject {filename}"
-    print(f"$ {cmd}")
-    exitcode = execute(cmd)
+    args = [
+        "git", "am", "--committer-date-is-author-date", "--reject", filename,
+    ]
+    exitcode = execute(*args).returncode
     if exitcode:
         print(file=sys.stderr)
-        print(f"{cmd} failed with exit code {exitcode}", file=sys.stderr)
+        print(f"git am failed with exit code {exitcode}", file=sys.stderr)
         print(f"Patch stored as: {filename}", file=sys.stderr)
-        sys.exit(exitcode)
+
+        for spec_rej in Path().glob(f'**/*.spec.rej'):
+            print(f'Processing rejects in {spec_rej}')
+            handle_reject(spec_rej)
+        if not any(Path().glob(f'**/*.rej')):
+            for spec in Path().glob(f'**/*.spec'):
+                execute("git", "add", spec.relative_to(Path()), check=True)
+            exitcode = execute("git", "am", "--continue").returncode
+
+        if exitcode:
+            sys.exit(exitcode)
 
 
 def main():
