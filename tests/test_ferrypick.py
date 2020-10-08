@@ -116,3 +116,44 @@ def test_handle_rejects(tmp_path, monkeypatch):
     expected = date_re.sub('Xxx Xxx 00 0000', expected_path.read_text())
 
     assert got == expected
+
+
+def test_handle_rejects_existing_rej(tmp_path, monkeypatch):
+    # If existing .rej files are lying around, refuse to guess
+    orig_path = Path(__file__).parent / "5ea55d7-python39.spec"
+    expected_path = Path(__file__).parent / "expected-python39.spec"
+    patch_path = Path(__file__).parent / "c8570d6.patch"
+
+    repo_path = tmp_path / 'repo'
+    file_path = repo_path / 'python39.spec'
+    existing_rej_path = repo_path / 'some.rej'
+    expected_rej_path = repo_path / 'python39.spec.rej'
+
+    repo_path.mkdir()
+    run('git', 'init', cwd=repo_path)
+    run('git', 'config', 'user.name', 'Me', cwd=repo_path)
+    run('git', 'config', 'user.email', 'me@me.test', cwd=repo_path)
+
+    file_path.write_bytes(orig_path.read_bytes())
+    run('git', 'add', 'python39.spec', cwd=repo_path)
+    run('git', 'commit', '-m', 'initial', cwd=repo_path)
+
+    existing_rej_path.write_text('...')
+
+    argv = [sys.argv[0], patch_path, 'python39']
+
+    monkeypatch.setattr(sys, 'argv', argv)
+    monkeypatch.chdir(repo_path)
+    with pytest.raises(SystemExit) as excinfo:
+        ferrypick.main()
+    exception = excinfo.value
+    assert exception.args[0] > 0
+
+    got = file_path.read_text()
+    #print(got)
+    assert 'Release: 2%{?dist}' in got
+
+    expected = '-Release: 3%{?dist}\n+Release: 4%{?dist}\n'
+    got_rej = expected_rej_path.read_text()
+    print(got_rej)
+    assert expected in got_rej

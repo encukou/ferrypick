@@ -9,7 +9,9 @@ This simple tool does these steps:
  2. replaces package name with current dist-git work dir package name
  3. runs `git am --reject` on the product
  4. if the rejected hunks only touch `Release` and add `%changelog` in spec
-    files, ignore the rejects and run `rpmdev-bumpspec` instead
+    files, ignore the rejects and run `rpmdev-bumpspec` instead.
+    (This step is skipped if there's a chance it wouldn't be safe,
+    such if there are as pre-existing `.rej` files.)
 
 Requires the `rpmdev-bumpspec` tool from [rpmdevtools].
 

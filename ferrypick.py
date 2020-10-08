@@ -164,8 +164,16 @@ def apply_patch(filename):
     args = [
         "git", "am", "--committer-date-is-author-date", "--reject", filename,
     ]
+    previous_rej = any(Path().glob(f'**/*.rej'))
     exitcode = execute(*args).returncode
     if exitcode:
+        if previous_rej:
+            print(
+                "Not attempting to process rejected patches: "
+                + "There were pre-existing *.rej files in your worktree.",
+                file=sys.stderr
+            )
+            sys.exit(exitcode)
         print(file=sys.stderr)
         print(f"git am failed with exit code {exitcode}", file=sys.stderr)
         print(f"Patch stored as: {filename}", file=sys.stderr)
